@@ -3,12 +3,13 @@ import System.Environment (getArgs)
 import System.IO.Unsafe (unsafePerformIO)
 
 import Data.Word (Word32)
+import Data.Bits (xor)
 import Data.Serialize.Get (runGet, getWord32be)
 import Data.Monoid (mconcat)
 import qualified Blaze.ByteString.Builder as B
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as S
-import qualified Data.Map as M
+import qualified Data.IntMap as M
 import Data.Attoparsec as A
 import Data.IORef (IORef, newIORef, readIORef, atomicModifyIORef)
 
@@ -40,7 +41,7 @@ proxyPort' = 1081
 ------------------------------------------------
 -- | Maintain a auto increment unique identity.
 
-type Identity = Word32
+type Identity = M.Key
 
 -- | a thread-safe global variable.
 identitySource :: TVar Identity
@@ -62,14 +63,14 @@ taggedParser :: Parser Tagged
 taggedParser = do
     (ident, len) <- A.take 8 >>= either fail return . runGet getWord32N2
     buffer <- A.take (fromIntegral len)
-    return (ident, len, buffer)
+    return (fromIntegral ident, len, decrypt buffer)
   where
     getWord32N2 = (,) <$> getWord32be <*> getWord32be
 
 encodeTagged :: Tagged -> ByteString
 encodeTagged (ident, len, buffer) =
     B.toByteString $ mconcat
-        [ B.fromWord32be ident
+        [ B.fromWord32be $ fromIntegral ident
         , B.fromWord32be len
         , B.copyByteString buffer
         ]
@@ -81,7 +82,7 @@ untagFrame :: ResourceThrow m => Conduit ByteString m Tagged
 untagFrame = C.sequence (C.sinkParser taggedParser)
 
 -- | Map of tunnel identity to data receiving channel of corresponding tunnel.
-type TunnelMap = M.Map Identity (TChan ByteString)
+type TunnelMap = M.IntMap (TChan ByteString)
 
 -- | Receive tagged frame from channel, send them to remote server.
 --   [extra thread] Receive tagged frame from remove server, untagg them, and pass then to the corresponding channel.
