@@ -1,4 +1,4 @@
-Note: this package depend on git HEAD version of `conduit library <http://hackage.haskell.org/package/conduit>`_ .
+Note: this package depend on git HEAD version of `conduit library <https://github.com/snoyberg/conduit>`_ .
 
 Introduction
 ============
