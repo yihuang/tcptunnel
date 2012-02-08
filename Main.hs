@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, ViewPatterns #-}
 import Control.Applicative
 import System.Environment (getArgs)
 import System.IO.Unsafe (unsafePerformIO)
@@ -23,14 +23,14 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import qualified Control.Concurrent.MVar.Lifted as Lifted
-import qualified Control.Concurrent.Lifted as Lifted
 import Control.Concurrent.STM (atomically, newTVarIO, TVar, readTVar, writeTVar)
 import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan)
 
 import Data.Conduit.TChan (sourceTChan, sinkTChan)
+import Data.Conduit.Concurrent (safeFork)
 
 proxyHost :: String
-proxyHost = "localhost"
+proxyHost = "127.0.0.1"
 proxyPort :: Int
 proxyPort = 1080
 
@@ -57,7 +57,7 @@ type Tagged = (Identity, Word32, ByteString)
 
 taggedParser :: Parser Tagged
 taggedParser = do
-    (ident, len) <- A.take 4 >>= either fail return . runGet getWord32N2
+    (ident, len) <- A.take 8 >>= either fail return . runGet getWord32N2
     buffer <- A.take (fromIntegral len)
     return (ident, len, buffer)
   where
@@ -84,10 +84,15 @@ type TunnelMap = M.Map Identity (TChan ByteString)
 --   [extra thread] Receive tagged frame from remove server, untagg them, and pass then to the corresponding channel.
 localClient :: TChan ByteString -> IORef TunnelMap -> Application
 localClient ch tunnels src sink = do
-    -- down stream
-    _ <- Lifted.fork $ src $= untagFrame $$ sinkTunnel
+    -- start server
+    _ <- liftIO $ forkIO $
+            runTCPServer
+                (ServerSettings proxyPort (Just proxyHost))
+                (localServer ch tunnels)
     -- up stream
-    sourceTChan ch $$ sink
+    _ <- safeFork $ sourceTChan ch $$ sink
+    -- down stream
+    src $= untagFrame $$ sinkTunnel
   where
     sinkTunnel = SinkData push close
     push (ident, _, buffer) = liftIO $ do
@@ -106,31 +111,31 @@ localServer ch tunnels src sink = do
     ident <- liftIO newIdentity
     liftIO $ atomicModifyIORef tunnels (\m -> (M.insert ident ch' m, ()))
     -- down stream
-    _ <- Lifted.fork $ sourceTChan ch' $$ sink
+    _ <- safeFork $ sourceTChan ch' $$ sink
     -- up stream
     src $= tagFrame ident $$ sinkTChan ch
 
 remoteClient :: Identity -> TChan ByteString -> TChan ByteString -> Application
 remoteClient ident ch ch' src sink = do
-    _ <- Lifted.fork $ sourceTChan ch' $$ sink
+    _ <- safeFork $ sourceTChan ch' $$ sink
     src $= tagFrame ident $$ sinkTChan ch
 
 remoteServer :: TChan ByteString -> MVar TunnelMap -> Application
 remoteServer ch tunnels src sink = do
-    _ <- Lifted.fork $ sourceTChan ch $$ sink
+    _ <- safeFork $ sourceTChan ch $$ sink
     src $= untagFrame $$ sinkTunnel
   where
     sinkTunnel = SinkData push close
     push (ident, _, buffer) = do
         ch' <- Lifted.modifyMVar tunnels $ \m ->
             case M.lookup ident m of
+                Just ch' -> return (m, ch')
                 Nothing -> do
                     ch' <- liftIO newTChanIO
-                    _ <- Lifted.fork $ liftIO $ runTCPClient
-                        (ClientSettings proxyPort proxyHost)
-                        (remoteClient ident ch ch')
+                    _ <- safeFork $ liftIO $ runTCPClient
+                            (ClientSettings proxyPort proxyHost)
+                            (remoteClient ident ch ch')
                     return (M.insert ident ch' m, ch')
-                Just ch' -> return (m, ch')
         liftIO $ atomically $ writeTChan ch' buffer
         return $ Processing push close
     close = return ()
@@ -139,21 +144,18 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ["local", host, port] -> do
+        ["local", host, read -> port] -> do
             ch <- newTChanIO
             tunnels <- newIORef M.empty
-            _ <- forkIO $ runTCPClient
-                     (ClientSettings (read port) (read host))
-                     (localClient ch tunnels)
-            runTCPServer
-                (ServerSettings proxyPort (Just proxyHost))
-                (localServer ch tunnels)
+            runTCPClient
+                (ClientSettings port host)
+                (localClient ch tunnels)
 
-        ["remote", host, port] -> do
+        ["remote", host, read -> port] -> do
             ch <- newTChanIO
             tunnels <- newMVar M.empty
             runTCPServer 
-                (ServerSettings (read port) (Just (read host)))
+                (ServerSettings port (Just host))
                 (remoteServer ch tunnels)
 
         _ -> putStrLn "./Main local|remote host port"
