@@ -14,8 +14,8 @@ import qualified Data.Map as M
 import Data.Attoparsec as A
 
 import Data.Conduit (Sink(SinkData), Conduit, ResourceThrow, SinkResult(Processing), ($$), ($=) )
-import qualified Data.Conduit.Util.Conduit as C
-import qualified Data.Conduit.List as CL
+import qualified Data.Conduit as C
+import qualified Data.Conduit.List as C
 import qualified Data.Conduit.Attoparsec as C
 import Data.Conduit.Network
 
@@ -29,10 +29,11 @@ import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan)
 import Data.Conduit.TChan (sourceTChan, sinkTChan)
 import Data.Conduit.Concurrent (safeFork)
 
-proxyHost :: String
 proxyHost = "127.0.0.1"
-proxyPort :: Int
-proxyPort = 1080
+proxyPort = 1082
+-- for testing
+proxyHost' = "127.0.0.1"
+proxyPort' = 1081
 
 ------------------------------------------------
 -- | Maintain a auto increment unique identity.
@@ -72,7 +73,7 @@ encodeTagged (ident, len, buffer) =
         ]
 
 tagFrame :: Monad m => Identity -> Conduit ByteString m ByteString
-tagFrame ident = CL.map $ \s -> encodeTagged (ident, fromIntegral (S.length s), s)
+tagFrame ident = C.map $ \s -> encodeTagged (ident, fromIntegral (S.length s), s)
 
 untagFrame :: ResourceThrow m => Conduit ByteString m Tagged
 untagFrame = C.sequence (C.sinkParser taggedParser)
@@ -133,7 +134,7 @@ remoteServer ch tunnels src sink = do
                 Nothing -> do
                     ch' <- liftIO newTChanIO
                     _ <- safeFork $ liftIO $ runTCPClient
-                            (ClientSettings proxyPort proxyHost)
+                            (ClientSettings proxyPort' proxyHost')
                             (remoteClient ident ch ch')
                     return (M.insert ident ch' m, ch')
         liftIO $ atomically $ writeTChan ch' buffer
