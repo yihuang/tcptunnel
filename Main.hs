@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns, ViewPatterns #-}
-import Control.Applicative
 import System.Environment (getArgs)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -9,9 +8,9 @@ import Data.Monoid (mconcat)
 import qualified Blaze.ByteString.Builder as B
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as S
-import Data.IORef
 import qualified Data.Map as M
 import Data.Attoparsec as A
+import Data.IORef (IORef, newIORef, readIORef, atomicModifyIORef)
 
 import Data.Conduit (Sink(SinkData), Conduit, ResourceThrow, SinkResult(Processing), ($$), ($=) )
 import qualified Data.Conduit as C
@@ -19,6 +18,7 @@ import qualified Data.Conduit.List as C
 import qualified Data.Conduit.Attoparsec as C
 import Data.Conduit.Network
 
+import Control.Applicative
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
@@ -29,9 +29,11 @@ import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan)
 import Data.Conduit.TChan (sourceTChan, sinkTChan)
 import Data.Conduit.Concurrent (safeFork)
 
+proxyHost, proxyHost' :: String
+proxyPort, proxyPort' :: Int
 proxyHost = "127.0.0.1"
 proxyPort = 1082
--- for testing
+-- for testing on single machine
 proxyHost' = "127.0.0.1"
 proxyPort' = 1081
 
