@@ -54,6 +54,15 @@ newIdentity = atomically $ do
     writeTVar identitySource v'
     return v'
 
+------------------------------------------------
+-- | encrypt / decrypt message.
+
+encrypt :: ByteString -> ByteString
+encrypt = S.map (\w -> w `xor` 0x64)
+
+decrypt :: ByteString -> ByteString
+decrypt = encrypt
+
 -----------------------------------------------
 -- | Parse and encode tagged frame.
 
@@ -72,7 +81,7 @@ encodeTagged (ident, len, buffer) =
     B.toByteString $ mconcat
         [ B.fromWord32be $ fromIntegral ident
         , B.fromWord32be len
-        , B.copyByteString buffer
+        , B.copyByteString $ encrypt buffer
         ]
 
 tagFrame :: Monad m => Identity -> Conduit ByteString m ByteString
