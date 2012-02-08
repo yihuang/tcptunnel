@@ -16,9 +16,9 @@ Run as local agent: `tcptunnel local remote-host remote-port` ;
 Run as remote agent: `tcptunnel remote bind-host bind-port` ;
 `remote-port` and `bind-port` should be the same.
 
-This solution demonstrates that haskell lightweight threads is very convinient for highly concurrent system, it also demonstrates multiple thread communication mechanism: IORef with atomicModifyIORef, MVar, STM.
+This solution demonstrates it's very convinient to build highly concurrent system using haskell lightweight threads, it also demonstrates multiple thread communication mechanism: IORef with atomicModifyIORef, MVar, STM. Also, persistent data structure -- `IntMap` in this case -- is important for concurrency.
 
-It takes advantage of multiple high quality haskell libraries:
+It also takes advantage of multiple high quality haskell libraries:
 
 * `bytestring <hackage.haskell.org/package/bytestring>`_ and `blaze-builder <http://hackage.haskell.org/package/blaze-builder>`_ provides fast buffer management and construction.
 * `attoparsec <http://hackage.haskell.org/package/attoparsec>`_  to parse streamlined network protocol, although the message format in this case is too simple to show the real strength of it.
