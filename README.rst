@@ -21,11 +21,13 @@ This solution demonstrates that haskell lightweight threads is very convinient f
 It takes advantage of multiple high quality haskell libraries:
 
 * `bytestring <hackage.haskell.org/package/bytestring>`_ and `blaze-builder <http://hackage.haskell.org/package/blaze-builder>`_ provides fast buffer management and construction.
-
 * `attoparsec <http://hackage.haskell.org/package/attoparsec>`_  to parse streamlined network protocol, although the message format in this case is too simple to show the real strength of it.
-
 * `cereal <http://hackage.haskell.org/package/cereal>`_ to parse binary data, manually handle correct byte-order is a pain.
-
 * `conduit <http://hackage.haskell.org/package/conduit>`_ is a stream processing framework, this concept maight be rare in some languages, if you find it strange, you can find great documentation here: `Conduits in Five Minutes <http://www.yesodweb.com/book/conduit>`_ .
-
 * `network-conduit <http://hackage.haskell.org/package/network-conduit>`_ provides a clean and complete tcp server/client interface to work with.
+
+TODO
+====
+
+* send close message when local client disconnect.
+* proper timeout handling.
