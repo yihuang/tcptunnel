@@ -52,6 +52,7 @@ Executable tcptunnel
                      , containers
                      , transformers
                      , stm
+                     , stm-conduit >= 0.2.2
                      , attoparsec
                      , blaze-builder
                      , cereal

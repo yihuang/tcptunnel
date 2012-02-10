@@ -18,6 +18,7 @@ import qualified Data.Conduit as C
 import qualified Data.Conduit.List as C
 import qualified Data.Conduit.Attoparsec as C
 import Data.Conduit.Network
+import Data.Conduit.TMChan (TBMChan, newTBMChanIO, writeTBMChan, sourceTBMChan, sinkTBMChan)
 
 import Control.Applicative
 import Control.Monad.IO.Class (liftIO)
@@ -25,9 +26,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import qualified Control.Concurrent.MVar.Lifted as Lifted
 import Control.Concurrent.STM (atomically, newTVarIO, TVar, readTVar, writeTVar)
-import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan)
 
-import Data.Conduit.TChan (sourceTChan, sinkTChan)
 import Data.Conduit.Concurrent (safeFork)
 
 proxyHost, proxyHost' :: String
@@ -38,6 +37,8 @@ proxyPort = 1082
 proxyHost' = "127.0.0.1"
 proxyPort' = 1081
 
+chanSize :: Int
+chanSize = 128
 ------------------------------------------------
 -- | Maintain a auto increment unique identity.
 
@@ -91,11 +92,11 @@ untagFrame :: ResourceThrow m => Conduit ByteString m Tagged
 untagFrame = C.sequence (C.sinkParser taggedParser)
 
 -- | Map of tunnel identity to data receiving channel of corresponding tunnel.
-type TunnelMap = M.IntMap (TChan ByteString)
+type TunnelMap = M.IntMap (TBMChan ByteString)
 
 -- | Receive tagged frame from channel, send them to remote server.
 --   [extra thread] Receive tagged frame from remove server, untagg them, and pass then to the corresponding channel.
-localClient :: TChan ByteString -> IORef TunnelMap -> Application
+localClient :: TBMChan ByteString -> IORef TunnelMap -> Application
 localClient ch tunnels src sink = do
     -- start server
     _ <- liftIO $ forkIO $
@@ -103,7 +104,7 @@ localClient ch tunnels src sink = do
                 (ServerSettings proxyPort (Just proxyHost))
                 (localServer ch tunnels)
     -- up stream
-    _ <- safeFork $ sourceTChan ch $$ sink
+    _ <- safeFork $ sourceTBMChan ch $$ sink
     -- down stream
     src $= untagFrame $$ sinkTunnel
   where
@@ -112,30 +113,30 @@ localClient ch tunnels src sink = do
         m <- readIORef tunnels
         case M.lookup ident m of
             Nothing -> putStrLn ("unknown tunnel identity "++show ident)
-            Just ch' -> atomically $ writeTChan ch' buffer
+            Just ch' -> atomically $ writeTBMChan ch' buffer
         return $ Processing push close
     close = return ()
 
 -- | Receive raw frame from client, tag it, and pass to channel.
 --   [extra thread] Receive raw frame from channel, send them back to client.
-localServer :: TChan ByteString -> IORef TunnelMap -> Application
+localServer :: TBMChan ByteString -> IORef TunnelMap -> Application
 localServer ch tunnels src sink = do
-    ch' <- liftIO newTChanIO
+    ch' <- liftIO $ newTBMChanIO chanSize
     ident <- liftIO newIdentity
     liftIO $ atomicModifyIORef tunnels (\m -> (M.insert ident ch' m, ()))
     -- down stream
-    _ <- safeFork $ sourceTChan ch' $$ sink
+    _ <- safeFork $ sourceTBMChan ch' $$ sink
     -- up stream
-    src $= tagFrame ident $$ sinkTChan ch
+    src $= tagFrame ident $$ sinkTBMChan ch
 
-remoteClient :: Identity -> TChan ByteString -> TChan ByteString -> Application
+remoteClient :: Identity -> TBMChan ByteString -> TBMChan ByteString -> Application
 remoteClient ident ch ch' src sink = do
-    _ <- safeFork $ sourceTChan ch' $$ sink
-    src $= tagFrame ident $$ sinkTChan ch
+    _ <- safeFork $ sourceTBMChan ch' $$ sink
+    src $= tagFrame ident $$ sinkTBMChan ch
 
-remoteServer :: TChan ByteString -> MVar TunnelMap -> Application
+remoteServer :: TBMChan ByteString -> MVar TunnelMap -> Application
 remoteServer ch tunnels src sink = do
-    _ <- safeFork $ sourceTChan ch $$ sink
+    _ <- safeFork $ sourceTBMChan ch $$ sink
     src $= untagFrame $$ sinkTunnel
   where
     sinkTunnel = SinkData push close
@@ -144,12 +145,12 @@ remoteServer ch tunnels src sink = do
             case M.lookup ident m of
                 Just ch' -> return (m, ch')
                 Nothing -> do
-                    ch' <- liftIO newTChanIO
+                    ch' <- liftIO $ newTBMChanIO chanSize
                     _ <- safeFork $ liftIO $ runTCPClient
                             (ClientSettings proxyPort' proxyHost')
                             (remoteClient ident ch ch')
                     return (M.insert ident ch' m, ch')
-        liftIO $ atomically $ writeTChan ch' buffer
+        liftIO $ atomically $ writeTBMChan ch' buffer
         return $ Processing push close
     close = return ()
 
@@ -158,14 +159,14 @@ main = do
     args <- getArgs
     case args of
         ["local", host, read -> port] -> do
-            ch <- newTChanIO
+            ch <- newTBMChanIO chanSize
             tunnels <- newIORef M.empty
             runTCPClient
                 (ClientSettings port host)
                 (localClient ch tunnels)
 
         ["remote", host, read -> port] -> do
-            ch <- newTChanIO
+            ch <- newTBMChanIO chanSize
             tunnels <- newMVar M.empty
             runTCPServer 
                 (ServerSettings port (Just host))
