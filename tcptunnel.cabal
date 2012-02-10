@@ -61,4 +61,4 @@ Executable tcptunnel
                      , attoparsec-conduit >= 0.2.0
                      , network-conduit >= 0.2.0
 
-  Other-modules:       Data.Conduit.TChan
+  Other-modules:       Data.Conduit.Concurrent
